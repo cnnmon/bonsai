@@ -16,6 +16,25 @@ import {
   normalizeText,
 } from "../lib/options";
 import { fetchGrokMatch } from "../lib/fuzzyMatch";
+import { fetchBranchGeneration } from "../lib/branchGeneration";
+import {
+  createJumpLine,
+  createOption,
+  generateId,
+} from "../components/Editor/utils";
+import { detectPrefix } from "@/lib/notation";
+function makeSceneLabel(input: string, prompt: string): string {
+  const base = `${input} ${prompt}`.trim() || "branch";
+  const cleaned = base
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+    .slice(0, 24);
+  const candidate = cleaned && cleaned !== "END" ? cleaned : "";
+  return candidate || `BRANCH_${generateId().toUpperCase()}`;
+}
+
 
 const GROK_CONFIDENCE_THRESHOLD = 0.45;
 
@@ -66,9 +85,20 @@ function findDecisionById(structure: GameStructure, decisionId: string): Decisio
   return null;
 }
 
+type GenerationStatus = "idle" | "matching" | "generating";
+
 export function useGame(
   gameStructure: GameStructure,
-  opts?: { onCacheOptionVariant?: (optionId: string, variant: string) => void }
+  opts?: {
+    onCacheOptionVariant?: (optionId: string, variant: string) => void;
+    onBranchGenerated?: (payload: {
+      decisionId: string;
+      option: Option;
+      newScene?: Scene;
+      userInput: string;
+    }) => void;
+    onAppendSceneLine?: (sceneLabel: string, line: { text: string; indent: number }) => void;
+  }
 ): {
   history: HistoryEntry[];
   currentLine: Line | null;
@@ -76,15 +106,29 @@ export function useGame(
   currentLineType: LineType | null;
   advance: (input?: string) => Promise<void>;
   restart: () => void;
-  isGenerating: boolean;
+  generationStatus: GenerationStatus;
+  jumpToScene: (sceneLabel: string) => void;
 } {
+  // Find the first non-prompt line index in the start scene
+  const getStartLineIndex = useCallback((structure: GameStructure) => {
+    const startScene = structure.scenes.find(s => s.label === structure.startScene);
+    if (!startScene) return 0;
+    
+    // Skip over global prompts at the beginning
+    let index = 0;
+    while (index < startScene.lines.length && startScene.lines[index].type === LineType.PROMPT) {
+      index++;
+    }
+    return index;
+  }, []);
+
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [position, setPosition] = useState<GamePosition>({
+  const [position, setPosition] = useState<GamePosition>(() => ({
     sceneLabel: gameStructure.startScene,
-    lineIndex: 0,
-  });
+    lineIndex: getStartLineIndex(gameStructure),
+  }));
   const [isEnded, setIsEnded] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<GenerationStatus>("idle");
   // Track jumps so we can return to the originating scene after visiting another
   const returnStack = useRef<GamePosition[]>([]);
   // Track which line ids have already been appended to history so edits don't replay them
@@ -118,12 +162,42 @@ export function useGame(
     return currentScene.lines[position.lineIndex] ?? null;
   }, [currentScene, position, isEnded]);
 
+  // Get global prompts (those before any scene)
+  const globalPrompts = useMemo(() => {
+    const prompts: string[] = [];
+    for (const scene of gameStructure.scenes) {
+      if (scene.label === gameStructure.startScene) {
+        for (const line of scene.lines) {
+          if (line.type === LineType.PROMPT) {
+            prompts.push(line.text);
+          } else {
+            break;
+          }
+        }
+        break;
+      }
+    }
+    console.log("[useGame] Global prompts extracted:", prompts);
+    return prompts;
+  }, [gameStructure]);
+
+  // Track accumulated prompts (global + current scene path)
+  const [accumulatedPrompts, setAccumulatedPrompts] = useState<string[]>(globalPrompts);
+
+  // Initialize accumulated prompts with global prompts on mount/structure change
+  useEffect(() => {
+    console.log("[useGame] Initializing accumulated prompts with global:", globalPrompts);
+    setAccumulatedPrompts(globalPrompts);
+  }, [globalPrompts]);
+
   // Handle jump to scene
   const handleJump = useCallback((target: string) => {
     setPosition({ sceneLabel: target, lineIndex: 0 });
     // Clear seen line IDs to allow lines to be replayed when cycling back to a scene
     seenLineIds.current.clear();
-  }, []);
+    // Reset to global prompts when leaving scene
+    setAccumulatedPrompts(globalPrompts);
+  }, [globalPrompts]);
 
   // Ensure decision prompt is appended as soon as we reach a decision line
   useEffect(() => {
@@ -202,7 +276,7 @@ export function useGame(
     ]);
     setIsEnded(true);
     setPendingDecisionId(null);
-    setIsGenerating(false);
+    setGenerationStatus("idle");
   }, []);
 
   // Select an option at a decision point (updates existing decision entry)
@@ -211,7 +285,12 @@ export function useGame(
       option: Option,
       decisionId: string,
       prompt: string,
-      selectionMeta?: { option: string; confidence?: number; cached?: boolean }
+      selectionMeta?: {
+        option: string;
+        confidence?: number;
+        cached?: boolean;
+        generated?: boolean;
+      }
     ) => {
       const chosen = getOptionPrimaryText(option);
       setHistory((prev) => {
@@ -255,9 +334,98 @@ export function useGame(
     []
   );
 
+  const toEditorLine = useCallback((raw: string): { indent: number; text: string } => {
+    const match = raw.match(/^(\s*)(.*)$/);
+    const leading = match?.[1] ?? "";
+    const content = match?.[2] ?? "";
+    const indent = Math.floor(leading.replace(/\t/g, "  ").length / 2);
+    return { indent, text: content };
+  }, []);
+
+  const generateBranch = useCallback(
+    async (decisionLine: DecisionLine, input: string) => {
+      setGenerationStatus("generating");
+      try {
+        const trimmedInput = input.trim();
+        if (!trimmedInput || !decisionLine.prompt.trim()) {
+          console.warn("[grok] Missing required fields for branch generation", {
+            hasInput: Boolean(trimmedInput),
+            hasPrompt: Boolean(decisionLine.prompt.trim()),
+            optionsCount: decisionLine.options.length,
+          });
+          appendNoSimilar();
+          return;
+        }
+
+        const sceneLabel = makeSceneLabel(trimmedInput, decisionLine.prompt);
+        const optionText = input.trim() || "New path";
+        const option = createOption([optionText], [createJumpLine(sceneLabel)]);
+
+        opts?.onBranchGenerated?.({
+          decisionId: decisionLine.id,
+          option,
+          newScene: { label: sceneLabel, lines: [] },
+          userInput: input,
+        });
+
+        selectOption(option, decisionLine.id, decisionLine.prompt, {
+          option: getOptionPrimaryText(option),
+          generated: true,
+        });
+
+        const customPrompt = accumulatedPrompts.length > 0 
+          ? accumulatedPrompts.join("\n") 
+          : undefined;
+
+        console.log("[useGame] Accumulated prompts:", accumulatedPrompts);
+        console.log("[useGame] Sending customPrompt:", customPrompt);
+
+        await fetchBranchGeneration(
+          {
+            input: trimmedInput,
+          decisionPrompt: decisionLine.prompt,
+          options: decisionLine.options.map((o) => ({ id: o.id, texts: o.texts })),
+          sceneLabel: currentScene?.label ?? "",
+          existingScenes: gameStructure.scenes.map((s) => s.label),
+          history: history.map((h) => h.text),
+            newSceneLabel: sceneLabel,
+            customPrompt,
+          },
+          (line) => {
+            // Debug: surface streamed lines to console
+            console.log("[grok-stream] raw:", JSON.stringify(line));
+            const { indent, text } = toEditorLine(line);
+            console.log("[grok-stream] parsed:", { indent, text });
+            if (!text.trim()) return;
+            const { type } = detectPrefix(text);
+            if (type === LineType.SCENE) return;
+            opts?.onAppendSceneLine?.(sceneLabel, { text, indent });
+          }
+        );
+      } catch (error) {
+        console.error("Branch generation failed", error);
+        appendNoSimilar();
+      } finally {
+        setGenerationStatus("idle");
+      }
+    },
+    [
+      appendNoSimilar,
+      cacheVariantIfNeeded,
+      currentScene?.label,
+      gameStructure.scenes,
+      history,
+      opts,
+      selectOption,
+      accumulatedPrompts,
+      toEditorLine,
+    ]
+  );
+
   const processDecisionInput = useCallback(
     async (decisionLine: DecisionLine, input: string) => {
       const decisionId = decisionLine.id;
+      setGenerationStatus("matching");
       const localMatch = findMatchingOption(decisionLine.options, input);
       if (localMatch) {
         cacheVariantIfNeeded(localMatch, input);
@@ -265,6 +433,7 @@ export function useGame(
           option: getOptionPrimaryText(localMatch),
           cached: true,
         });
+        setGenerationStatus("idle");
         return;
       }
 
@@ -274,7 +443,8 @@ export function useGame(
           !grokMatch.optionId ||
           grokMatch.confidence < GROK_CONFIDENCE_THRESHOLD
         ) {
-          appendNoSimilar();
+          await generateBranch(decisionLine, input);
+          setGenerationStatus("idle");
           return;
         }
 
@@ -296,18 +466,12 @@ export function useGame(
             confidence: grokMatch.confidence,
           }
         );
+        setGenerationStatus("idle");
       } catch (error) {
-        if (
-          typeof window !== "undefined" &&
-          window.confirm("Matching failed. Try again?")
-        ) {
-          return processDecisionInput(decisionLine, input);
-        }
-        appendNoSimilar();
+        await generateBranch(decisionLine, input);
       }
-      setIsGenerating(false);
     },
-    [appendNoSimilar, cacheVariantIfNeeded, selectOption]
+    [appendNoSimilar, cacheVariantIfNeeded, generateBranch, selectOption]
   );
 
   // Advance through the game
@@ -315,9 +479,13 @@ export function useGame(
   // - For decision lines: requires input to match against options (local or Grok)
   const advance = useCallback(
     async (input?: string) => {
-      if (!currentScene || isEnded) return;
+      if (!currentScene || isEnded) {
+        console.log("No current scene or ended, popping return or ending");
+        return;
+      };
 
       if (!currentLine) {
+        console.log("No current line, popping return or ending");
         popReturnOrEnd();
         return;
       }
@@ -325,22 +493,26 @@ export function useGame(
       // Handle decisions using the stored decision id so prompt stays frozen while options stay live
       if (pendingDecisionId || currentLine?.type === "decision") {
         const decisionId = pendingDecisionId ?? currentLine?.id;
-        if (!decisionId) return;
+        if (!decisionId) {
+          console.log("No decision id, returning");
+          return;
+        }
         const decisionLine = findDecisionById(gameStructure, decisionId);
         if (!decisionLine) return;
 
         if (input) {
-          setIsGenerating(true);
           await processDecisionInput(decisionLine, input);
-          setIsGenerating(false);
         }
+
+        console.log("Processed decision input, returning");
         return;
       }
 
-      if (!currentLine) return;
-
       // Don't reprocess non-decision lines already in history
-      if (seenLineIds.current.has(currentLine.id)) return;
+      if (seenLineIds.current.has(currentLine.id)) {
+        console.log("Already seen line, returning");
+        return;
+      }
 
       if (currentLine.type === "narrative") {
         seenLineIds.current.add(currentLine.id);
@@ -364,6 +536,35 @@ export function useGame(
               }));
             } else {
               // Done with option lines, move to next scene line after the decision
+              const decisionIndex = currentScene.lines.indexOf(decision);
+              setPosition((prev) => ({
+                ...prev,
+                lineIndex: decisionIndex + 1,
+                optionPath: undefined,
+              }));
+            }
+          }
+        } else {
+          setPosition((prev) => ({ ...prev, lineIndex: prev.lineIndex + 1 }));
+        }
+      } else if (currentLine.type === LineType.PROMPT) {
+        // Accumulate prompt and auto-advance
+        seenLineIds.current.add(currentLine.id);
+        setAccumulatedPrompts((prev) => [...prev, currentLine.text]);
+
+        // Move to next line
+        if (position.optionPath) {
+          const decision = currentScene.lines.find(
+            (l) => l.type === "decision" && l.options.some((o) => o.id === position.optionPath!.optionId)
+          );
+          if (decision?.type === "decision") {
+            const opt = decision.options.find((o) => o.id === position.optionPath!.optionId);
+            if (opt && position.optionPath.lineIndex + 1 < opt.lines.length) {
+              setPosition((prev) => ({
+                ...prev,
+                optionPath: { ...prev.optionPath!, lineIndex: prev.optionPath!.lineIndex + 1 },
+              }));
+            } else {
               const decisionIndex = currentScene.lines.indexOf(decision);
               setPosition((prev) => ({
                 ...prev,
@@ -400,12 +601,32 @@ export function useGame(
 
   const restart = useCallback(() => {
     setHistory([]);
-    setPosition({ sceneLabel: gameStructure.startScene, lineIndex: 0 });
+    setPosition({ 
+      sceneLabel: gameStructure.startScene, 
+      lineIndex: getStartLineIndex(gameStructure) 
+    });
     setIsEnded(false);
     returnStack.current = [];
     seenLineIds.current = new Set();
     setPendingDecisionId(null);
-  }, [gameStructure.startScene]);
+    setGenerationStatus("idle");
+    setAccumulatedPrompts(globalPrompts);
+  }, [gameStructure, globalPrompts, getStartLineIndex]);
+
+  const jumpToScene = useCallback(
+    (sceneLabel: string) => {
+      setHistory([]);
+      // When jumping to a scene, start at line 0 (we only skip prompts on game start)
+      setPosition({ sceneLabel, lineIndex: 0 });
+      setIsEnded(false);
+      returnStack.current = [];
+      seenLineIds.current = new Set();
+      setPendingDecisionId(null);
+      setGenerationStatus("idle");
+      setAccumulatedPrompts(globalPrompts);
+    },
+    [globalPrompts]
+  );
 
   return {
     history,
@@ -414,7 +635,8 @@ export function useGame(
     currentLineType,
     advance,
     restart,
-    isGenerating,
+    generationStatus,
+    jumpToScene,
   };
 }
 
