@@ -21,17 +21,6 @@ BIKE:
 - You're biking, that's pretty rad
 ```
 
-| Symbol | Meaning |
-|--------|---------|
-| `-` | Narrative line |
-| `*` | Decision point (prompt) |
-| `->` | Option (under a decision) or jump (standalone) |
-| `[+ X]` | Add item to inventory |
-| `[- X]` | Remove item from inventory |
-| `[? X]` | Check if item exists (conditional) |
-| `[X += N]` | Add N to stat X |
-| `[X -= N]` | Subtract N from stat X |
-
 Options can require inventory items: `-> Use your sword [? SWORD]` only appears if the player has SWORD. Required options bypass semantic search.
 
 ## Architecture
@@ -52,8 +41,8 @@ Options can require inventory items: `-> Use your sword [? SWORD]` only appears 
 - [x] Notion-style editor with slash commands (`/decision`, `/option`, `/goto`)
 
 ### MVP
-- [ ] Semantic search for option matching (embeddings, similarity threshold)
-- [ ] Branch generation when no match found (LLM call)
+- [ ] Fuzzy search for option matching (LLM call)
+- [ ] Branch generation when no match found (LLM call -- make this con)
 - [ ] Version control for generated content (diff view, approve/reject)
 
 ### Future

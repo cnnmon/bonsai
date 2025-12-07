@@ -51,7 +51,7 @@ export default function Game() {
   }, [history]);
 
   return (
-    <div className="flex flex-col gap-2 w-full p-2 overflow-auto bg-zinc-50 h-full relative">
+    <div className="flex flex-col gap-2 w-full p-2 overflow-auto bg-zinc-100 h-full relative">
       <div className="flex justify-between items-center">
         <div className="text-xs font-bold text-gray-500 uppercase">Game</div>
         <button onClick={restart}>Restart?</button>

@@ -5,7 +5,7 @@ import { useGameContext } from "../../context/GameContext";
 import Line from "./Line";
 
 export default function Editor() {
-  const { editorLines, loadEditorLines } = useGameContext();
+  const { editorLines } = useGameContext();
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
   const focusLine = useCallback((id: string) => {
@@ -20,16 +20,6 @@ export default function Editor() {
     }
   }, [editorLines]);
 
-  const pasteFromClipboard = useCallback(async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      const parsed = JSON.parse(text);
-      loadEditorLines(parsed);
-    } catch (err) {
-      console.error("Paste failed", err);
-    }
-  }, [loadEditorLines]);
-
   return (
     <div className="flex flex-col w-full p-2 overflow-auto min-h-[300px]">
       <div className="flex justify-between items-center">
@@ -38,7 +28,6 @@ export default function Editor() {
         </div>
         <div className="flex gap-2">
           <button onClick={copyToClipboard}>Copy</button>
-          <button onClick={pasteFromClipboard}>Paste</button>
         </div>
       </div>
 

@@ -105,6 +105,8 @@ export function useGame(gameStructure: GameStructure): {
   // Handle jump to scene
   const handleJump = useCallback((target: string) => {
     setPosition({ sceneLabel: target, lineIndex: 0 });
+    // Clear seen line IDs to allow lines to be replayed when cycling back to a scene
+    seenLineIds.current.clear();
   }, []);
 
   // Ensure decision prompt is appended as soon as we reach a decision line

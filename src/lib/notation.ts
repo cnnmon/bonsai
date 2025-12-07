@@ -12,6 +12,7 @@ export function detectPrefix(text: string): { type: LineType; content: string } 
   const trimmed = text.trimStart();
   if (trimmed.startsWith("* ")) return { type: LineType.DECISION, content: trimmed.slice(2) };
   if (trimmed.startsWith("~ ")) return { type: LineType.OPTION, content: trimmed.slice(2) };
+  if (trimmed.startsWith("↗ ")) return { type: LineType.JUMP, content: trimmed.slice(2) };
   // Legacy: "-> " may represent an option or jump; we classify as OPTION here and will disambiguate by indent later.
   if (trimmed.startsWith("-> ")) return { type: LineType.OPTION, content: trimmed.slice(3) };
   if (trimmed.startsWith("- ")) return { type: LineType.NARRATIVE, content: trimmed.slice(2) };
@@ -31,7 +32,7 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
     if (line.type === LineType.NARRATIVE) {
       lines.push({ id: line.id, text: `- ${line.text}`, indent });
     } else if (line.type === LineType.JUMP) {
-      lines.push({ id: line.id, text: `-> ${line.target}`, indent });
+      lines.push({ id: line.id, text: `↗ ${line.target}`, indent });
     } else if (line.type === LineType.DECISION) {
       lines.push({ id: line.id, text: `* ${line.prompt}`, indent });
       for (const opt of line.options) {
@@ -208,9 +209,9 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
 export const SLASH_COMMANDS = [
   { trigger: '/narrative', prefix: '- ', label: 'Narrative', description: 'Story text' },
   { trigger: '/decision', prefix: '* ', label: 'Decision', description: 'Player choice point' },
-  { trigger: '/option', prefix: '-> ', label: 'Option', description: 'Choice option' },
-  { trigger: '/goto', prefix: '-> ', label: 'Go to', description: 'Jump to scene' },
-  { trigger: '/scene', prefix: '', label: 'Scene', description: 'New scene (NAME:)' },
+  { trigger: '/option', prefix: '~ ', label: 'Option', description: 'Choice option' },
+  { trigger: '/goto', prefix: '↗ ', label: 'Go to', description: 'Jump to scene' },
+  { trigger: '/scene', prefix: '', label: 'Scene', description: 'New scene' },
 ] as const;
 
 export function matchSlashCommand(text: string): typeof SLASH_COMMANDS[number] | null {

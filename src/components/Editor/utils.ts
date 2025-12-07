@@ -8,9 +8,9 @@ export function getPrefix(type: LineType): string {
     case LineType.DECISION:
       return "* ";
     case LineType.OPTION:
-      return "~ ";
-    case LineType.JUMP:
       return "-> ";
+    case LineType.JUMP:
+      return "↗ ";
     default:
       return "";
   }

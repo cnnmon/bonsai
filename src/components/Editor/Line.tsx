@@ -205,15 +205,17 @@ export default function Line({
       {showSlash && (
         <SlashMenu query={slashQuery} onSelect={handleSlashSelect} />
       )}
-      {isJump && (
-        <SceneMenu
-          scenes={filteredScenes}
-          selectedIndex={selectedSceneIdx}
-          onHover={setSelectedSceneIdx}
-          onSelect={handleSceneSelect}
-          leftOffset={line.indent * 20 + 24}
-        />
-      )}
+      {isJump &&
+        isFocused &&
+        (content.trim().length === 0 || !hasExactScene) && (
+          <SceneMenu
+            scenes={filteredScenes}
+            selectedIndex={selectedSceneIdx}
+            onHover={setSelectedSceneIdx}
+            onSelect={handleSceneSelect}
+            leftOffset={line.indent * 20 + 24}
+          />
+        )}
     </div>
   );
 }

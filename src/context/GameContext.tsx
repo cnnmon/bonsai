@@ -20,7 +20,6 @@ import { generateId } from "../components/Editor/utils";
 interface GameContextValue {
   gameStructure: GameStructure;
   editorLines: EditorLine[];
-  loadEditorLines: (lines: EditorLine[]) => void;
   updateLine: (id: string, text: string) => void;
   updateLineIndent: (id: string, indent: number) => void;
   insertLineAfter: (afterId: string, text: string, indent: number) => string;
@@ -77,27 +76,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const loadEditorLines = useCallback((lines: EditorLine[]) => {
-    if (!Array.isArray(lines)) return;
-    const sanitized = lines
-      .filter(
-        (l) =>
-          l &&
-          typeof l.id === "string" &&
-          typeof l.text === "string" &&
-          typeof l.indent === "number"
-      )
-      .map((l) => ({ id: l.id, text: l.text, indent: Math.max(0, l.indent) }));
-    if (sanitized.length === 0) return;
-    setEditorLines(sanitized);
-  }, []);
-
   return (
     <GameContext.Provider
       value={{
         gameStructure,
         editorLines,
-        loadEditorLines,
         updateLine,
         updateLineIndent,
         insertLineAfter,
