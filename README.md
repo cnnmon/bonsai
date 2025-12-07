@@ -2,7 +2,7 @@
 
 An AI game engine inspired by a bonsai tree for interactive branching narratives, where the game grows by itself but allows for easy pruning by the human author. Hacked across 2 days.
 
-<img width="817" height="371" alt="diagram" src="https://github.com/user-attachments/assets/91b1629d-3c96-4f5b-94e8-2041e6d9d7c6" />
+<img width="1365" height="1161" alt="Screenshot 2025-12-07 at 2 26 40 PM" src="https://github.com/user-attachments/assets/bb9951fd-21a4-4b84-acce-440b848cc937" />
 
 ## Notation
 
