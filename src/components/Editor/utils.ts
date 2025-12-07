@@ -1,16 +1,20 @@
 import { nanoid } from "nanoid";
-import { LineType, NarrativeLine, DecisionLine, JumpLine, Option } from "@/types";
+import { LineType, NarrativeLine, DecisionLine, JumpLine, PromptLine, Option } from "@/types";
 
 export function getPrefix(type: LineType): string {
   switch (type) {
     case LineType.NARRATIVE:
       return "- ";
     case LineType.DECISION:
-      return "* ";
+      return "? ";
     case LineType.OPTION:
-      return "~ ";
+      return "* ";
     case LineType.JUMP:
       return "↗ ";
+    case LineType.PROMPT:
+      return "! ";
+    case LineType.SCENE:
+      return "# ";
     default:
       return "";
   }
@@ -47,9 +51,17 @@ export function createJumpLine(target: string): JumpLine {
   };
 }
 
+export function createPromptLine(text: string): PromptLine {
+  return {
+    type: LineType.PROMPT,
+    id: generateId(),
+    text,
+  };
+}
+
 export function createOption(
   texts: string[],
-  lines: (NarrativeLine | DecisionLine | JumpLine)[] = []
+  lines: (NarrativeLine | DecisionLine | JumpLine | PromptLine)[] = []
 ): Option {
   return {
     id: generateId(),

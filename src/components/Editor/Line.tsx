@@ -1,3 +1,5 @@
+"use client";
+
 import { useRef, useState, useEffect, useMemo, KeyboardEvent } from "react";
 import { useGameContext } from "../../context/GameContext";
 import { EditorLine, detectPrefix } from "../../lib/notation";
@@ -12,38 +14,33 @@ import { formatOptionTexts, parseOptionTexts } from "@/lib/options";
 export default function Line({
   line,
   isFocused,
+  isSelected,
   focusLine,
 }: {
   line: EditorLine;
   isFocused: boolean;
+  isSelected: boolean;
   focusLine: (id: string) => void;
 }) {
   const {
     updateLine,
     updateLineIndent,
     insertLineAfter,
+    insertLineBefore,
     deleteLine,
     editorLines,
     gameStructure,
+    triggerSceneJump,
   } = useGameContext();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [showSlash, setShowSlash] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
   const [selectedSceneIdx, setSelectedSceneIdx] = useState(0);
   const [optionDraft, setOptionDraft] = useState("");
+  const cursorPositionRef = useRef<number | null>(null);
 
   const { type, content } = detectPrefix(line.text);
-  const optionTexts = useMemo(
-    () =>
-      type === LineType.OPTION ? parseOptionTexts(optionDraft || content) : [],
-    [type, optionDraft, content]
-  );
-  const displayValue =
-    type === LineType.SCENE
-      ? content.replace(/:$/, "")
-      : type === LineType.OPTION
-      ? optionDraft
-      : content;
+  const displayValue = type === LineType.OPTION ? optionDraft : content;
   const isJump = type === LineType.JUMP;
 
   const sceneNames = useMemo(
@@ -66,6 +63,17 @@ export default function Line({
   useEffect(() => {
     if (isFocused && inputRef.current) {
       inputRef.current.focus();
+
+      // Set cursor position if specified (e.g., after join operation)
+      if (cursorPositionRef.current !== null) {
+        const pos = cursorPositionRef.current;
+        cursorPositionRef.current = null;
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.setSelectionRange(pos, pos);
+          }
+        }, 0);
+      }
     }
   }, [isFocused]);
 
@@ -101,14 +109,31 @@ export default function Line({
 
     setShowSlash(false);
 
-    if (type === LineType.SCENE) {
-      updateLine(line.id, newContent + (newContent.endsWith(":") ? "" : ":"));
-      return;
+    // Auto-parse if content starts with special characters
+    if (newContent.length >= 2) {
+      const prefix = newContent.slice(0, 2);
+      if (
+        prefix === "- " ||
+        prefix === "? " ||
+        prefix === "* " ||
+        prefix === "! " ||
+        prefix === "# " ||
+        prefix === "↗ "
+      ) {
+        // User is typing a special prefix, update the whole line
+        updateLine(line.id, newContent);
+        return;
+      }
     }
 
     if (type === LineType.OPTION) {
       setOptionDraft(newContent);
       updateLine(line.id, getPrefix(type) + newContent);
+      return;
+    }
+
+    if (type === LineType.PROMPT) {
+      updateLine(line.id, `! ${newContent}`);
       return;
     }
 
@@ -173,8 +198,32 @@ export default function Line({
 
     if (e.key === "Enter") {
       e.preventDefault();
-      const newId = insertLineAfter(line.id, "- ", line.indent);
-      setTimeout(() => focusLine(newId), 0);
+      const cursorPosition = inputRef.current?.selectionStart ?? 0;
+
+      if (cursorPosition === 0) {
+        // At start of line: insert new line above current line
+        const newId = insertLineBefore(line.id, "- ", line.indent);
+        setTimeout(() => focusLine(newId), 0);
+      } else if (cursorPosition < displayValue.length) {
+        // In middle of text: split the text
+        const beforeCursor = displayValue.slice(0, cursorPosition);
+        const afterCursor = displayValue.slice(cursorPosition);
+
+        // Update current line with text before cursor
+        updateLine(line.id, getPrefix(type) + beforeCursor);
+
+        // Create new line with text after cursor
+        const newId = insertLineAfter(
+          line.id,
+          getPrefix(type) + afterCursor,
+          line.indent
+        );
+        setTimeout(() => focusLine(newId), 0);
+      } else {
+        // At end of line: insert new line below
+        const newId = insertLineAfter(line.id, "- ", line.indent);
+        setTimeout(() => focusLine(newId), 0);
+      }
     }
 
     if (e.key === "Tab") {
@@ -186,13 +235,54 @@ export default function Line({
       }
     }
 
-    if (e.key === "Backspace" && content === "") {
-      e.preventDefault();
-      const idx = editorLines.findIndex((l) => l.id === line.id);
-      if (idx > 0) {
-        const prevLine = editorLines[idx - 1];
-        deleteLine(line.id);
-        setTimeout(() => focusLine(prevLine.id), 0);
+    if (e.key === "Backspace") {
+      const cursorPosition = inputRef.current?.selectionStart ?? 0;
+
+      if (cursorPosition === 0) {
+        e.preventDefault();
+        const idx = editorLines.findIndex((l) => l.id === line.id);
+
+        if (idx > 0) {
+          const prevLine = editorLines[idx - 1];
+          const { type: prevType, content: prevContent } = detectPrefix(
+            prevLine.text
+          );
+
+          if (content === "") {
+            // Empty line: just delete it
+            deleteLine(line.id);
+            setTimeout(() => focusLine(prevLine.id), 0);
+          } else {
+            // Join current line's content with previous line
+            // If previous line is empty, use current line's type instead
+            const joinType = prevContent === "" ? type : prevType;
+            const joinedContent = prevContent + content;
+            updateLine(prevLine.id, getPrefix(joinType) + joinedContent);
+            deleteLine(line.id);
+
+            // Store cursor position at join point for the previous line
+            const prevLineElement = editorLines[idx - 1];
+            if (prevLineElement) {
+              // We need to communicate the cursor position to the previous line
+              // Use a temporary data attribute or event
+              setTimeout(() => {
+                focusLine(prevLine.id);
+                // Set cursor position via DOM after focus
+                setTimeout(() => {
+                  const textarea = document.querySelector(
+                    `textarea[data-line-id="${prevLine.id}"]`
+                  ) as HTMLTextAreaElement;
+                  if (textarea) {
+                    textarea.setSelectionRange(
+                      prevContent.length,
+                      prevContent.length
+                    );
+                  }
+                }, 0);
+              }, 0);
+            }
+          }
+        }
       }
     }
 
@@ -216,12 +306,28 @@ export default function Line({
   return (
     <div className="group relative">
       <div
-        className="flex items-center gap-1 py-0.5 hover:bg-gray-50"
+        className={twMerge(
+          "flex items-center gap-1 py-0.5 hover:bg-gray-50",
+          isSelected && "bg-blue-100"
+        )}
         style={{ paddingLeft: line.indent * 20 }}
       >
-        <TypeIcon type={type} />
+        <TypeIcon
+          type={type}
+          onClick={
+            type === LineType.SCENE
+              ? () => triggerSceneJump(content)
+              : type === LineType.PROMPT
+              ? () => {
+                  // Could add tooltip or highlight functionality here
+                  console.log("Prompt:", content);
+                }
+              : undefined
+          }
+        />
         <textarea
           ref={inputRef}
+          data-line-id={`${line.id}-${line.indent}`}
           value={displayValue}
           onChange={(e) => handleContentChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -229,13 +335,12 @@ export default function Line({
           placeholder={isFocused ? "Type / for commands..." : ""}
           className={twMerge(
             "flex-1 bg-transparent outline-none text-sm py-0.5 whitespace-pre-wrap break-words resize-none leading-relaxed",
-            type === "scene"
+            type === LineType.SCENE
               ? "font-semibold"
-              : type === "decision"
+              : type === LineType.DECISION
               ? "italic"
-              : "",
-            isJump && !hasExactScene && content.trim().length > 0
-              ? "text-red-500"
+              : type === LineType.PROMPT
+              ? "text-purple-600 font-medium italic"
               : ""
           )}
           rows={1}

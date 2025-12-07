@@ -7,7 +7,7 @@ import { GameProvider } from "../context/GameContext";
 function Container({ children }: { children: React.ReactElement }) {
   return (
     <div
-      className="flex w-full p-2 bg-zinc-100 h-full"
+      className="flex w-full bg-zinc-100 h-screen overflow-auto"
       style={{
         border: "2.5px solid #c0c0c0",
         borderRight: "2.5px solid #fff",

@@ -4,6 +4,7 @@ export enum LineType {
   DECISION = 'decision',
   OPTION = 'option',
   SCENE = 'scene',
+  PROMPT = 'prompt',
 }
 
 export interface NarrativeLine {
@@ -16,6 +17,12 @@ export interface JumpLine {
   type: LineType.JUMP;
   id: string;
   target: string; // Scene label or 'END'
+}
+
+export interface PromptLine {
+  type: LineType.PROMPT;
+  id: string;
+  text: string;
 }
 
 export interface Option {
@@ -44,7 +51,7 @@ export interface DecisionLine {
 //   displayText?: string; // "You got a SWORD!"
 // }
 
-export type Line = NarrativeLine | DecisionLine | JumpLine;
+export type Line = NarrativeLine | DecisionLine | JumpLine | PromptLine;
 
 export interface Scene {
   label: string;
@@ -64,7 +71,7 @@ export interface HistoryEntry {
   text: string;
   chosenOption?: string; // For decisions, what the player typed
   meta?: boolean; // For ancillary/system notes (e.g., selected variant)
-  selectionMeta?: { option: string; confidence?: number; cached?: boolean };
+  selectionMeta?: { option: string; confidence?: number; cached?: boolean; generated?: boolean };
 }
 
 export interface GameState {

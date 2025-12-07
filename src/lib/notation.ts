@@ -6,6 +6,7 @@ import {
   NarrativeLine,
   DecisionLine,
   JumpLine,
+  PromptLine,
   LineType,
 } from "../types/game";
 import { generateId } from "../components/Editor/utils";
@@ -20,15 +21,12 @@ export interface EditorLine {
 
 export function detectPrefix(text: string): { type: LineType; content: string } {
   const trimmed = text.trimStart();
-  if (trimmed.startsWith("* ")) return { type: LineType.DECISION, content: trimmed.slice(2) };
-  if (trimmed.startsWith("~ ")) return { type: LineType.OPTION, content: trimmed.slice(2) };
+  if (trimmed.startsWith("# ")) return { type: LineType.SCENE, content: trimmed.slice(2) };
+  if (trimmed.startsWith("? ")) return { type: LineType.DECISION, content: trimmed.slice(2) };
+  if (trimmed.startsWith("* ")) return { type: LineType.OPTION, content: trimmed.slice(2) };
   if (trimmed.startsWith("↗ ")) return { type: LineType.JUMP, content: trimmed.slice(2) };
-  // Legacy: "-> " may represent an option or jump; we classify as OPTION here and will disambiguate by indent later.
-  if (trimmed.startsWith("-> ")) return { type: LineType.OPTION, content: trimmed.slice(3) };
+  if (trimmed.startsWith("! ")) return { type: LineType.PROMPT, content: trimmed.slice(2) };
   if (trimmed.startsWith("- ")) return { type: LineType.NARRATIVE, content: trimmed.slice(2) };
-  if (trimmed.endsWith(":") && !trimmed.includes(" ")) return { type: LineType.SCENE, content: trimmed.slice(0, -1) };
-  // Standalone arrow is a jump
-  if (trimmed.startsWith("->")) return { type: LineType.JUMP, content: trimmed.slice(2).trim() };
   
   // Default to narrative without prefix
   return { type: LineType.NARRATIVE, content: trimmed };
@@ -43,12 +41,14 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
       lines.push({ id: line.id, text: `- ${line.text}`, indent });
     } else if (line.type === LineType.JUMP) {
       lines.push({ id: line.id, text: `↗ ${line.target}`, indent });
+    } else if (line.type === LineType.PROMPT) {
+      lines.push({ id: line.id, text: `! ${line.text}`, indent });
     } else if (line.type === LineType.DECISION) {
-      lines.push({ id: line.id, text: `* ${line.prompt}`, indent });
+      lines.push({ id: line.id, text: `? ${line.prompt}`, indent });
       for (const opt of line.options) {
         lines.push({
           id: opt.id,
-          text: `~ ${formatOptionTexts(opt.texts)}`,
+          text: `* ${formatOptionTexts(opt.texts)}`,
           indent: indent + 1,
         });
         for (const optLine of opt.lines) {
@@ -59,11 +59,10 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
   };
   
   for (const scene of structure.scenes) {
-    lines.push({ id: `scene-${scene.label}`, text: `${scene.label}:`, indent: 0 });
+    lines.push({ id: `scene-${scene.label}`, text: `# ${scene.label}`, indent: 0 });
     for (const line of scene.lines) {
       processLine(line, 0);
     }
-    lines.push({ id: generateId(), text: '', indent: 0 }); // Empty line between scenes
   }
   
   return lines;
@@ -104,7 +103,8 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
 
       if (type === LineType.SCENE) {
         finishDecision();
-        if (currentScene) {
+        // Don't push the temporary START scene if it's empty
+        if (currentScene && !(currentScene.label === 'START' && currentScene.lines.length === 0)) {
           scenes.push(currentScene);
         }
         currentScene = { label: content, lines: [] };
@@ -113,11 +113,14 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       }
       
       if (!currentScene) {
-        currentScene = { label: 'START', lines: [] };
+        // Skip lines before first scene header
+        i++;
+        continue;
       }
       
       if (type === LineType.DECISION) {
         finishDecision();
+        // Don't create decisions in pre-scene area; they'll be added to first scene
         currentDecision = { 
           line: { type: LineType.DECISION, id: editorLine.id, prompt: content, options: [] },
           indent 
@@ -146,16 +149,16 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       // Legacy/ambiguous arrow at wrong indent: treat as jump
       if (type === LineType.OPTION) {
         const jumpLine: JumpLine = { type: LineType.JUMP, id: editorLine.id, target: content };
-        if (currentOption) {
+        
+        // Check if we need to close decision due to de-indentation
+        if (currentDecision && indent <= currentDecision.indent) {
+          finishDecision();
+          currentScene.lines.push(jumpLine);
+        } else if (currentOption) {
           currentOption.lines.push(jumpLine);
         } else if (currentDecision) {
-          if (indent <= currentDecision.indent) {
-            finishDecision();
-            currentScene.lines.push(jumpLine);
-          } else {
-            finishDecision();
-            currentScene.lines.push(jumpLine);
-          }
+          finishDecision();
+          currentScene.lines.push(jumpLine);
         } else {
           currentScene.lines.push(jumpLine);
         }
@@ -165,21 +168,41 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       
       if (type === LineType.NARRATIVE) {
         const narrativeLine: NarrativeLine = { type: LineType.NARRATIVE, id: editorLine.id, text: content };
-        if (currentOption) {
+        
+        // Check if we need to close decision due to de-indentation
+        if (currentDecision && indent <= currentDecision.indent) {
+          // De-indented back to decision level or less, close everything
+          finishDecision();
+          currentScene.lines.push(narrativeLine);
+        } else if (currentOption) {
+          // Inside an option and properly indented
           currentOption.lines.push(narrativeLine);
         } else if (currentDecision) {
-          // Narrative not inside option but after decision - check indent
-          if (indent <= currentDecision.indent) {
-            // De-indented back, close decision
-            finishDecision();
-            currentScene.lines.push(narrativeLine);
-          } else {
-            // Still indented, treat as orphan - close decision
-            finishDecision();
-            currentScene.lines.push(narrativeLine);
-          }
-        } else {
+          // After decision but no option - orphan, close decision
+          finishDecision();
           currentScene.lines.push(narrativeLine);
+        } else {
+          // No decision context
+          currentScene.lines.push(narrativeLine);
+        }
+        i++;
+        continue;
+      }
+      
+      if (type === LineType.PROMPT) {
+        const promptLine: PromptLine = { type: LineType.PROMPT, id: editorLine.id, text: content };
+        
+        // Check if we need to close decision due to de-indentation
+        if (currentDecision && indent <= currentDecision.indent) {
+          finishDecision();
+          currentScene.lines.push(promptLine);
+        } else if (currentOption) {
+          currentOption.lines.push(promptLine);
+        } else if (currentDecision) {
+          finishDecision();
+          currentScene.lines.push(promptLine);
+        } else {
+          currentScene.lines.push(promptLine);
         }
         i++;
         continue;
@@ -188,17 +211,17 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       // Handle jump (-> at wrong indent, or standalone)
       if (type === LineType.JUMP) {
         const jumpLine: JumpLine = { type: LineType.JUMP, id: editorLine.id, target: content };
-        if (currentOption) {
+        
+        // Check if we need to close decision due to de-indentation
+        if (currentDecision && indent <= currentDecision.indent) {
+          finishDecision();
+          currentScene.lines.push(jumpLine);
+        } else if (currentOption) {
           currentOption.lines.push(jumpLine);
         } else if (currentDecision) {
-          if (indent <= currentDecision.indent) {
-            finishDecision();
-            currentScene.lines.push(jumpLine);
-          } else {
-            // Jump after decision but no option - odd but add to scene
-            finishDecision();
-            currentScene.lines.push(jumpLine);
-          }
+          // Jump after decision but no option - close decision
+          finishDecision();
+          currentScene.lines.push(jumpLine);
         } else {
           currentScene.lines.push(jumpLine);
         }
@@ -227,10 +250,11 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
 // Slash command definitions
 export const SLASH_COMMANDS = [
   { trigger: '/narrative', prefix: '- ', label: 'Narrative', description: 'Story text' },
-  { trigger: '/decision', prefix: '* ', label: 'Decision', description: 'Player choice point' },
-  { trigger: '/option', prefix: '~ ', label: 'Option', description: 'Choice option' },
+  { trigger: '/decision', prefix: '? ', label: 'Decision', description: 'Player choice point' },
+  { trigger: '/option', prefix: '* ', label: 'Option', description: 'Choice option' },
   { trigger: '/goto', prefix: '↗ ', label: 'Go to', description: 'Jump to scene' },
-  { trigger: '/scene', prefix: '', label: 'Scene', description: 'New scene' },
+  { trigger: '/prompt', prefix: '! ', label: 'Prompt', description: 'AI generation instruction' },
+  { trigger: '/scene', prefix: '# ', label: 'Scene', description: 'New scene' },
 ] as const;
 
 export function matchSlashCommand(text: string): typeof SLASH_COMMANDS[number] | null {

@@ -20,6 +20,7 @@ import { fetchBranchGeneration } from "../lib/branchGeneration";
 import {
   createJumpLine,
   createOption,
+  createNarrativeLine,
   generateId,
 } from "../components/Editor/utils";
 import { detectPrefix } from "@/lib/notation";
@@ -108,6 +109,8 @@ export function useGame(
   restart: () => void;
   generationStatus: GenerationStatus;
   jumpToScene: (sceneLabel: string) => void;
+  parseErrorDecisionId: string | null;
+  retryParseError: () => Promise<void>;
 } {
   // Find the first non-prompt line index in the start scene
   const getStartLineIndex = useCallback((structure: GameStructure) => {
@@ -135,6 +138,10 @@ export function useGame(
   const seenLineIds = useRef<Set<string>>(new Set());
   // Track the active decision awaiting input (by id) so prompt stays frozen while options stay live
   const [pendingDecisionId, setPendingDecisionId] = useState<string | null>(null);
+  const [branchParseError, setBranchParseError] = useState<{
+    decisionId: string;
+    input: string;
+  } | null>(null);
   const cacheVariant = opts?.onCacheOptionVariant;
 
   // Find current scene
@@ -357,22 +364,6 @@ export function useGame(
           return;
         }
 
-        const sceneLabel = makeSceneLabel(trimmedInput, decisionLine.prompt);
-        const optionText = input.trim() || "New path";
-        const option = createOption([optionText], [createJumpLine(sceneLabel)]);
-
-        opts?.onBranchGenerated?.({
-          decisionId: decisionLine.id,
-          option,
-          newScene: { label: sceneLabel, lines: [] },
-          userInput: input,
-        });
-
-        selectOption(option, decisionLine.id, decisionLine.prompt, {
-          option: getOptionPrimaryText(option),
-          generated: true,
-        });
-
         const customPrompt = accumulatedPrompts.length > 0 
           ? accumulatedPrompts.join("\n") 
           : undefined;
@@ -380,28 +371,183 @@ export function useGame(
         console.log("[useGame] Accumulated prompts:", accumulatedPrompts);
         console.log("[useGame] Sending customPrompt:", customPrompt);
 
-        await fetchBranchGeneration(
-          {
-            input: trimmedInput,
+        const content = await fetchBranchGeneration({
+          input: trimmedInput,
           decisionPrompt: decisionLine.prompt,
           options: decisionLine.options.map((o) => ({ id: o.id, texts: o.texts })),
           sceneLabel: currentScene?.label ?? "",
           existingScenes: gameStructure.scenes.map((s) => s.label),
           history: history.map((h) => h.text),
-            newSceneLabel: sceneLabel,
-            customPrompt,
-          },
-          (line) => {
-            // Debug: surface streamed lines to console
-            console.log("[grok-stream] raw:", JSON.stringify(line));
-            const { indent, text } = toEditorLine(line);
-            console.log("[grok-stream] parsed:", { indent, text });
-            if (!text.trim()) return;
-            const { type } = detectPrefix(text);
-            if (type === LineType.SCENE) return;
-            opts?.onAppendSceneLine?.(sceneLabel, { text, indent });
+          newSceneLabel: makeSceneLabel(trimmedInput, decisionLine.prompt),
+          customPrompt,
+        });
+        setBranchParseError(null);
+
+        const parsedJson =
+          content &&
+          (content.type === "paragraph" ||
+            content.type === "new_scene" ||
+            content.type === "existing_scene" ||
+            content.type === "parse_error")
+            ? content
+            : null;
+
+        const optionText = trimmedInput || "New path";
+        let targetSceneLabel =
+          currentScene?.label || makeSceneLabel(trimmedInput, decisionLine.prompt);
+
+        if (!parsedJson || parsedJson.type === "parse_error") {
+          setBranchParseError({ decisionId: decisionLine.id, input });
+          // Legacy path: parse notation text
+          const lines = content
+            .toString()
+            .split(/\r?\n/)
+            .map((ln: string) => ln.replace(/\s+$/, ""));
+
+          const parsed = lines
+            .map((line: string) => {
+              const { indent, text } = toEditorLine(line);
+              const detected = detectPrefix(text);
+              return { raw: line, indent, text, ...detected };
+            })
+            .filter((p: any) => p.text.trim().length > 0);
+
+          for (let i = 1; i < parsed.length; i++) {
+            const current = parsed[i];
+            const prev = parsed[i - 1];
+            const prevIsOption = prev?.type === LineType.OPTION;
+            const needsNesting =
+              prevIsOption &&
+              (current.type === LineType.NARRATIVE || current.type === LineType.PROMPT) &&
+              current.indent <= prev.indent;
+            if (needsNesting) {
+              parsed[i] = { ...current, indent: prev.indent + 1 };
+            }
           }
-        );
+
+          const sceneLine = parsed.find(
+            (p: any) => p.type === LineType.SCENE && p.content
+          );
+          const jumpLine = parsed.find(
+            (p: any) => p.type === LineType.JUMP && p.content
+          );
+
+          targetSceneLabel =
+            sceneLine?.content ||
+            jumpLine?.content ||
+            currentScene?.label ||
+            makeSceneLabel(trimmedInput, decisionLine.prompt);
+
+          const option = sceneLine
+            ? createOption([optionText], [createJumpLine(sceneLine.content)])
+            : jumpLine
+            ? createOption([optionText], [createJumpLine(jumpLine.content)])
+            : createOption([optionText], []);
+
+          opts?.onBranchGenerated?.({
+            decisionId: decisionLine.id,
+            option,
+            newScene: sceneLine ? { label: sceneLine.content, lines: [] } : undefined,
+            userInput: input,
+          });
+
+          selectOption(option, decisionLine.id, decisionLine.prompt, {
+            option: getOptionPrimaryText(option),
+            generated: true,
+          });
+
+          for (const parsedLine of parsed) {
+            const { indent, text, type, content } = parsedLine;
+            if (type === LineType.SCENE) continue;
+            if (type === LineType.JUMP && jumpLine && content === jumpLine.content)
+              continue;
+            opts?.onAppendSceneLine?.(targetSceneLabel, { text, indent });
+          }
+          return;
+        }
+
+        // JSON path
+        if (parsedJson.type === "paragraph") {
+          const text = parsedJson.text?.toString().trim();
+          const question = parsedJson.question?.toString().trim();
+          const optionLines = text ? [createNarrativeLine(text)] : [];
+          const option = createOption([optionText], optionLines);
+          opts?.onBranchGenerated?.({
+            decisionId: decisionLine.id,
+            option,
+            userInput: input,
+          });
+          selectOption(option, decisionLine.id, decisionLine.prompt, {
+            option: getOptionPrimaryText(option),
+            generated: true,
+          });
+          if (question) {
+            opts?.onAppendSceneLine?.(targetSceneLabel, { text: `? ${question}`, indent: 0 });
+          }
+          return;
+        }
+
+        if (parsedJson.type === "existing_scene") {
+          const sceneLabel = parsedJson.sceneLabel?.toString().trim();
+          if (!sceneLabel) {
+            appendNoSimilar();
+            return;
+          }
+          targetSceneLabel = sceneLabel;
+          const option = createOption([optionText], [createJumpLine(sceneLabel)]);
+          opts?.onBranchGenerated?.({
+            decisionId: decisionLine.id,
+            option,
+            userInput: input,
+          });
+          selectOption(option, decisionLine.id, decisionLine.prompt, {
+            option: getOptionPrimaryText(option),
+            generated: true,
+          });
+          const paragraphs: string[] = Array.isArray(parsedJson.paragraphs)
+            ? parsedJson.paragraphs
+            : [];
+          for (const p of paragraphs) {
+            const t = p?.toString().trim();
+            if (t) opts?.onAppendSceneLine?.(targetSceneLabel, { text: `- ${t}`, indent: 0 });
+          }
+          return;
+        }
+
+        if (parsedJson.type === "new_scene") {
+          const sceneLabel = parsedJson.sceneLabel?.toString().trim();
+          if (!sceneLabel) {
+            appendNoSimilar();
+            return;
+          }
+          targetSceneLabel = sceneLabel;
+          const question = parsedJson.question?.toString().trim();
+          const option = createOption([optionText], [createJumpLine(sceneLabel)]);
+          opts?.onBranchGenerated?.({
+            decisionId: decisionLine.id,
+            option,
+            newScene: { label: sceneLabel, lines: [] },
+            userInput: input,
+          });
+          selectOption(option, decisionLine.id, decisionLine.prompt, {
+            option: getOptionPrimaryText(option),
+            generated: true,
+          });
+          const paragraphs: string[] = Array.isArray(parsedJson.paragraphs)
+            ? parsedJson.paragraphs
+            : [];
+          for (const p of paragraphs) {
+            const t = p?.toString().trim();
+            if (t) opts?.onAppendSceneLine?.(targetSceneLabel, { text: `- ${t}`, indent: 0 });
+          }
+          if (question) {
+            opts?.onAppendSceneLine?.(targetSceneLabel, { text: `? ${question}`, indent: 0 });
+          }
+          return;
+        }
+
+        // Unknown JSON shape fallback
+        appendNoSimilar();
       } catch (error) {
         console.error("Branch generation failed", error);
         appendNoSimilar();
@@ -485,6 +631,22 @@ export function useGame(
       };
 
       if (!currentLine) {
+        // Check if we're at the end of an option's lines
+        if (position.optionPath) {
+          const decision = currentScene.lines.find(
+            (l) => l.type === "decision" && l.options.some((o) => o.id === position.optionPath!.optionId)
+          );
+          if (decision?.type === "decision") {
+            // Exit the option and continue with the line after the decision
+            const decisionIndex = currentScene.lines.indexOf(decision);
+            setPosition({
+              sceneLabel: position.sceneLabel,
+              lineIndex: decisionIndex + 1,
+              optionPath: undefined,
+            });
+            return;
+          }
+        }
         console.log("No current line, popping return or ending");
         popReturnOrEnd();
         return;
@@ -578,11 +740,11 @@ export function useGame(
         }
       } else if (currentLine.type === LineType.JUMP) {
         seenLineIds.current.add(currentLine.id);
-        pushReturnAfterCurrent();
 
         if (currentLine.target === "END") {
-          popReturnOrEnd();
+          setIsEnded(true);
         } else {
+          pushReturnAfterCurrent();
           handleJump(currentLine.target);
         }
       }
@@ -611,6 +773,7 @@ export function useGame(
     setPendingDecisionId(null);
     setGenerationStatus("idle");
     setAccumulatedPrompts(globalPrompts);
+    setBranchParseError(null);
   }, [gameStructure, globalPrompts, getStartLineIndex]);
 
   const jumpToScene = useCallback(
@@ -624,9 +787,20 @@ export function useGame(
       setPendingDecisionId(null);
       setGenerationStatus("idle");
       setAccumulatedPrompts(globalPrompts);
+      setBranchParseError(null);
     },
     [globalPrompts]
   );
+
+  const retryParseError = useCallback(async () => {
+    if (!branchParseError) return;
+    const decision = findDecisionById(gameStructure, branchParseError.decisionId);
+    if (!decision) {
+      setBranchParseError(null);
+      return;
+    }
+    await generateBranch(decision, branchParseError.input);
+  }, [branchParseError, gameStructure, generateBranch]);
 
   return {
     history,
@@ -637,6 +811,8 @@ export function useGame(
     restart,
     generationStatus,
     jumpToScene,
+    parseErrorDecisionId: branchParseError?.decisionId ?? null,
+    retryParseError,
   };
 }
 

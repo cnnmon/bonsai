@@ -5,12 +5,12 @@ export default function Decision({
   entry,
   isPending,
   onSelect,
-  isGenerating,
+  generationStatus,
 }: {
   entry: HistoryEntry;
   isPending: boolean;
   onSelect: (text: string) => void;
-  isGenerating: boolean;
+  generationStatus: "idle" | "matching" | "generating";
 }) {
   const [query, setQuery] = useState("");
   return (
@@ -21,8 +21,8 @@ export default function Decision({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type to decide..."
-            disabled={isGenerating}
+            placeholder="Type to act..."
+            disabled={generationStatus !== "idle"}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -32,9 +32,6 @@ export default function Decision({
               }
             }}
           />
-          {isGenerating && (
-            <div className="text-xs text-gray-500">Matching your choice...</div>
-          )}
         </div>
       ) : (
         <div className="flex flex-col gap-1">
@@ -42,7 +39,9 @@ export default function Decision({
           {entry.selectionMeta && (
             <div className="text-xs text-gray-500">
               Using: {entry.selectionMeta.option}
-              {entry.selectionMeta.cached
+              {entry.selectionMeta.generated
+                ? " (generated)"
+                : entry.selectionMeta.cached
                 ? " (cached)"
                 : typeof entry.selectionMeta.confidence === "number"
                 ? ` (${Math.round(

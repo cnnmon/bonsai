@@ -7,27 +7,44 @@ import { useGameContext } from "@/context/GameContext";
 import Decision from "./Decision";
 
 export default function Game() {
-  const { gameStructure, appendOptionVariant } = useGameContext();
-  const { history, currentLineType, advance, restart, isGenerating } = useGame(
+  const {
     gameStructure,
-    { onCacheOptionVariant: appendOptionVariant }
-  );
+    appendOptionVariant,
+    applyGeneratedBranch,
+    appendLineToScene,
+    registerSceneJumpHandler,
+  } = useGameContext();
+
+  const {
+    history,
+    currentLineType,
+    advance,
+    restart,
+    generationStatus,
+    jumpToScene,
+  } = useGame(gameStructure, {
+    onCacheOptionVariant: appendOptionVariant,
+    onBranchGenerated: applyGeneratedBranch,
+    onAppendSceneLine: (sceneLabel, line) =>
+      appendLineToScene(sceneLabel, line.text, line.indent),
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
-  const lastEntry = history[history.length - 1];
   const activeDecisionId =
-    lastEntry?.type === LineType.DECISION && !lastEntry.chosenOption
-      ? lastEntry.lineId
-      : null;
+    [...history]
+      .reverse()
+      .find((entry) => entry.type === LineType.DECISION && !entry.chosenOption)
+      ?.lineId ?? null;
 
   const handleSelect = (text: string) => {
     void advance(text);
   };
 
-  // Auto-advance narrative and jump lines
+  // Auto-advance narrative, jump, and prompt lines
   useEffect(() => {
     if (
       currentLineType === LineType.NARRATIVE ||
-      currentLineType === LineType.JUMP
+      currentLineType === LineType.JUMP ||
+      currentLineType === LineType.PROMPT
     ) {
       const timer = setTimeout(() => {
         void advance();
@@ -40,6 +57,11 @@ export default function Game() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
+
+  useEffect(() => {
+    registerSceneJumpHandler(jumpToScene);
+    return () => registerSceneJumpHandler(() => {});
+  }, [registerSceneJumpHandler, jumpToScene]);
 
   return (
     <div className="flex flex-col gap-2 w-full p-2 overflow-auto bg-zinc-100 h-full relative">
@@ -67,12 +89,19 @@ export default function Game() {
                 entry={entry}
                 isPending={isPendingDecisionInput}
                 onSelect={handleSelect}
-                isGenerating={isGenerating}
+                generationStatus={generationStatus}
               />
             )}
           </div>
         );
       })}
+      <p className="text-xs text-gray-500">
+        {generationStatus === "idle"
+          ? ""
+          : generationStatus === "matching"
+          ? "Finding the best path..."
+          : "Generating the path..."}
+      </p>
       <div ref={bottomRef} />
     </div>
   );
