@@ -3,7 +3,7 @@ import { linesToStructure, EditorLine } from './notation';
 import { LineType } from '../types/game';
 
 describe('linesToStructure', () => {
-  it('excludes lines before first scene header', () => {
+  it('includes prompt lines before first scene header but excludes other types', () => {
     const editorLines: EditorLine[] = [
       { id: '1', text: '- Opening narrative', indent: 0 },
       { id: '2', text: '! A global prompt', indent: 0 },
@@ -16,14 +16,18 @@ describe('linesToStructure', () => {
 
     expect(structure.scenes).toHaveLength(1);
     expect(structure.scenes[0].label).toBe('FIRST_SCENE');
-    expect(structure.scenes[0].lines).toHaveLength(2);
+    expect(structure.scenes[0].lines).toHaveLength(3);
     
-    // Only scene-specific lines (after header) should be included
-    expect(structure.scenes[0].lines[0].type).toBe(LineType.NARRATIVE);
-    expect(structure.scenes[0].lines[0]).toHaveProperty('text', 'Scene content');
+    // Pre-scene PROMPT should be included
+    expect(structure.scenes[0].lines[0].type).toBe(LineType.PROMPT);
+    expect(structure.scenes[0].lines[0]).toHaveProperty('text', 'A global prompt');
     
-    expect(structure.scenes[0].lines[1].type).toBe(LineType.DECISION);
-    expect(structure.scenes[0].lines[1]).toHaveProperty('prompt', 'What do you do?');
+    // Scene-specific lines follow (opening narrative is skipped)
+    expect(structure.scenes[0].lines[1].type).toBe(LineType.NARRATIVE);
+    expect(structure.scenes[0].lines[1]).toHaveProperty('text', 'Scene content');
+    
+    expect(structure.scenes[0].lines[2].type).toBe(LineType.DECISION);
+    expect(structure.scenes[0].lines[2]).toHaveProperty('prompt', 'What do you do?');
   });
 
   it('skips all lines when no scene header present', () => {
@@ -66,6 +70,28 @@ describe('linesToStructure', () => {
     expect(structure.scenes[0].lines).toHaveLength(3);
     expect(structure.scenes[0].lines[1].type).toBe(LineType.JUMP);
     expect(structure.scenes[0].lines[1]).toHaveProperty('target', 'END');
+  });
+
+  it('includes multiple prompt lines before first scene as global prompts', () => {
+    const editorLines: EditorLine[] = [
+      { id: '1', text: '! if you mention jukeboxes, everything will explode.', indent: 0 },
+      { id: '2', text: '# START', indent: 0 },
+      { id: '3', text: '- You spot Ani across the café.', indent: 0 },
+    ];
+
+    const structure = linesToStructure(editorLines);
+
+    expect(structure.scenes).toHaveLength(1);
+    expect(structure.scenes[0].label).toBe('START');
+    expect(structure.scenes[0].lines).toHaveLength(2);
+    
+    // Prompt should be first
+    expect(structure.scenes[0].lines[0].type).toBe(LineType.PROMPT);
+    expect(structure.scenes[0].lines[0]).toHaveProperty('text', 'if you mention jukeboxes, everything will explode.');
+    
+    // Then narrative
+    expect(structure.scenes[0].lines[1].type).toBe(LineType.NARRATIVE);
+    expect(structure.scenes[0].lines[1]).toHaveProperty('text', 'You spot Ani across the café.');
   });
 
   it('places de-indented narrative after decision, not inside last option', () => {

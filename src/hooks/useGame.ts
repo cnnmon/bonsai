@@ -742,6 +742,10 @@ export function useGame(
         seenLineIds.current.add(currentLine.id);
 
         if (currentLine.target === "END") {
+          setHistory((prev) => [
+            ...prev,
+            { lineId: `end-${Date.now()}`, type: LineType.NARRATIVE, text: "END" },
+          ]);
           setIsEnded(true);
         } else {
           pushReturnAfterCurrent();

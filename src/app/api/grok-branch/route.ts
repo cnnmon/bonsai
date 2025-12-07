@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
   const newSceneLabel = (body.newSceneLabel ?? "").toString().trim();
   const customPrompt = (body.customPrompt ?? "").toString().trim();
 
+  console.log("[grok-branch] Received customPrompt:", customPrompt || "empty");
+
   if (!input || !decisionPrompt) {
     return NextResponse.json(
       { error: "input and decisionPrompt are required" },
@@ -56,13 +58,15 @@ export async function POST(req: NextRequest) {
       ? recentHistory.map((h, i) => `${i + 1}. ${h}`).join("\n")
       : "None provided";
 
-  const systemPrompt = customPrompt
-    ? `${DEFAULT_SYSTEM_PROMPT}\n\nADDITIONAL INSTRUCTIONS:\n${clampLength(customPrompt, 400)}`
+  const clampedCustomPrompt = customPrompt ? clampLength(customPrompt, 400) : "";
+  const systemPrompt = clampedCustomPrompt
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\nIMPORTANT:\n${clampedCustomPrompt}`
     : DEFAULT_SYSTEM_PROMPT;
 
-  const userPrompt = clampLength(
-    `
-CURRENT CONTEXT:
+  console.log("[grok-branch] Custom prompt:", clampedCustomPrompt || "none");
+  console.log("[grok-branch] System prompt length:", systemPrompt.length);
+
+  const baseUserPrompt = `\nCURRENT CONTEXT:
 Scene: ${sceneLabel || "START"}
 Decision: "${decisionPrompt}"
 Player: "${input}"
@@ -73,10 +77,23 @@ ${historyList}
 AVAILABLE SCENES:
 ${sceneList}
 
-Respond with one JSON object only. If creating a new scene, use: ${newSceneLabel || "AUTO_SCENE"}. Include a short paragraph only if needed.`
-      .trim(),
+Respond with one JSON object only. If creating a new scene, use: ${newSceneLabel || "AUTO_SCENE"}. Include a short paragraph only if needed.`;
+
+  const userPrompt = clampLength(
+    clampedCustomPrompt 
+      ? `${baseUserPrompt}\n\nIMPORTANT: ${clampedCustomPrompt}`
+      : baseUserPrompt,
     MAX_USER_PROMPT_CHARS
   );
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  console.log("[grok-branch] Sending to Grok:");
+  console.log("  System prompt:", systemPrompt);
+  console.log("  User prompt:", userPrompt);
 
   const grokResponse = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
@@ -88,10 +105,7 @@ Respond with one JSON object only. If creating a new scene, use: ${newSceneLabel
       model: "grok-4-latest",
       stream: false,
       temperature: 0.3,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+      messages,
     }),
   });
 
@@ -105,6 +119,8 @@ Respond with one JSON object only. If creating a new scene, use: ${newSceneLabel
 
   const data = await grokResponse.json();
   const content = data?.choices?.[0]?.message?.content ?? "";
+
+  console.log("[grok-branch] Response from Grok:", content.substring(0, 200) + (content.length > 200 ? "..." : ""));
 
   return NextResponse.json({ content }, { status: 200 });
 }

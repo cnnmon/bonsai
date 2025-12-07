@@ -78,6 +78,7 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
   let currentScene: Scene | null = null;
   let currentDecision: { line: DecisionLine; indent: number } | null = null;
   let currentOption: Option | null = null;
+  let preScenePrompts: PromptLine[] = [];
   let i = 0;
   
   const finishOption = () => {
@@ -107,13 +108,17 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
         if (currentScene && !(currentScene.label === 'START' && currentScene.lines.length === 0)) {
           scenes.push(currentScene);
         }
-        currentScene = { label: content, lines: [] };
+        currentScene = { label: content, lines: [...preScenePrompts] };
+        preScenePrompts = [];
         i++;
         continue;
       }
       
       if (!currentScene) {
-        // Skip lines before first scene header
+        // Before first scene: collect PROMPT lines, skip everything else
+        if (type === LineType.PROMPT) {
+          preScenePrompts.push({ type: LineType.PROMPT, id: editorLine.id, text: content });
+        }
         i++;
         continue;
       }

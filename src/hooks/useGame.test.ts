@@ -480,9 +480,10 @@ describe('useGame - Cycling Behavior', () => {
       await result.current.advance();
     });
 
-    // Game should be ended, no more lines processed
+    // Game should be ended with "END" appended to history
     expect(result.current.currentLine).toBe(null);
-    expect(result.current.history.length).toBe(1);
+    expect(result.current.history.length).toBe(2);
+    expect(result.current.history[1].text).toBe('END');
   });
 });
 
