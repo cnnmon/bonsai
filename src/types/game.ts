@@ -20,7 +20,10 @@ export interface JumpLine {
 
 export interface Option {
   id: string;
-  text: string;
+  /**
+   * Primary text first, followed by confirmed similar variants.
+   */
+  texts: string[];
   lines: Line[];
 }
 
@@ -60,6 +63,8 @@ export interface HistoryEntry {
   type: LineType.NARRATIVE | LineType.DECISION | LineType.JUMP;
   text: string;
   chosenOption?: string; // For decisions, what the player typed
+  meta?: boolean; // For ancillary/system notes (e.g., selected variant)
+  selectionMeta?: { option: string; confidence?: number; cached?: boolean };
 }
 
 export interface GameState {

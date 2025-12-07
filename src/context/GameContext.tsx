@@ -14,8 +14,11 @@ import {
   EditorLine,
   structureToLines,
   linesToStructure,
+  detectPrefix,
 } from "../lib/notation";
 import { generateId } from "../components/Editor/utils";
+import { formatOptionTexts, parseOptionTexts } from "../lib/options";
+import { LineType } from "@/types";
 
 interface GameContextValue {
   gameStructure: GameStructure;
@@ -24,6 +27,7 @@ interface GameContextValue {
   updateLineIndent: (id: string, indent: number) => void;
   insertLineAfter: (afterId: string, text: string, indent: number) => string;
   deleteLine: (id: string) => void;
+  appendOptionVariant: (optionId: string, variant: string) => void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -76,6 +80,27 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const appendOptionVariant = useCallback((optionId: string, variant: string) => {
+    setEditorLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== optionId) return line;
+        const { type, content } = detectPrefix(line.text);
+        if (type !== LineType.OPTION) return line;
+        const existing = parseOptionTexts(content);
+        const normalized = new Set(existing.map((v) => v.trim().toLowerCase()));
+        const trimmed = variant.trim();
+        if (!trimmed || normalized.has(trimmed.toLowerCase())) {
+          return line;
+        }
+        const nextTexts = [...existing, trimmed];
+        return {
+          ...line,
+          text: `~ ${formatOptionTexts(nextTexts)}`,
+        };
+      })
+    );
+  }, []);
+
   return (
     <GameContext.Provider
       value={{
@@ -85,6 +110,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         updateLineIndent,
         insertLineAfter,
         deleteLine,
+        appendOptionVariant,
       }}
     >
       {children}

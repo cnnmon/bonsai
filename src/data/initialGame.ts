@@ -13,12 +13,12 @@ export const initialGame: GameStructure = {
       label: 'FIRE',
       lines: [
         createNarrativeLine('The fire burns brightly.'),
-        createDecisionLine('What story do you want to tell around the fire?', [
-          createOption('Ride a bike', [
+        createDecisionLine('What do you want to do now?', [
+          createOption(['Ride a bike'], [
             createNarrativeLine("That's cool!"),
             createJumpLine('BIKE'),
           ]),
-          createOption('Learn to sail', [
+          createOption(['Learn to sail'], [
             createNarrativeLine("You're sailing, that's pretty rad"),
           ]),
         ]),

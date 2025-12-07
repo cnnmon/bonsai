@@ -1,37 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useGameContext } from "../../context/GameContext";
+import { useEffect, useRef } from "react";
 import { useGame } from "../../hooks/useGame";
 import { LineType } from "@/types";
+import { useGameContext } from "@/context/GameContext";
 import Decision from "./Decision";
 
 export default function Game() {
-  const { gameStructure } = useGameContext();
-  const { history, currentDecision, currentLineType, advance, restart } =
-    useGame(gameStructure);
-  const [query, setQuery] = useState("");
+  const { gameStructure, appendOptionVariant } = useGameContext();
+  const { history, currentLineType, advance, restart, isGenerating } = useGame(
+    gameStructure,
+    { onCacheOptionVariant: appendOptionVariant }
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastEntry = history[history.length - 1];
   const activeDecisionId =
     lastEntry?.type === LineType.DECISION && !lastEntry.chosenOption
       ? lastEntry.lineId
       : null;
-  const isDecision = !!activeDecisionId;
-  const decisionOptions =
-    isDecision && currentDecision?.id === activeDecisionId
-      ? currentDecision.options ?? []
-      : [];
-  const filteredOptions =
-    query.trim().length > 0
-      ? decisionOptions.filter((opt) =>
-          opt.text.toLowerCase().includes(query.toLowerCase())
-        )
-      : decisionOptions;
 
   const handleSelect = (text: string) => {
-    setQuery(text);
-    advance(text);
+    void advance(text);
   };
 
   // Auto-advance narrative and jump lines
@@ -40,7 +29,9 @@ export default function Game() {
       currentLineType === LineType.NARRATIVE ||
       currentLineType === LineType.JUMP
     ) {
-      const timer = setTimeout(() => advance(), 100);
+      const timer = setTimeout(() => {
+        void advance();
+      }, 100);
       return () => clearTimeout(timer);
     }
   }, [currentLineType, advance]);
@@ -66,15 +57,17 @@ export default function Game() {
 
         return (
           <div key={i} className="flex flex-col gap-1">
-            {entry.type === LineType.NARRATIVE && <div>{entry.text}</div>}
+            {entry.type === LineType.NARRATIVE && (
+              <div className={entry.meta ? "text-gray-400 text-sm" : undefined}>
+                {entry.text}
+              </div>
+            )}
             {entry.type === LineType.DECISION && (
               <Decision
                 entry={entry}
                 isPending={isPendingDecisionInput}
-                query={query}
-                onQueryChange={setQuery}
-                filteredOptions={filteredOptions}
                 onSelect={handleSelect}
+                isGenerating={isGenerating}
               />
             )}
           </div>

@@ -43,20 +43,35 @@ input:focus {
   box-shadow: 0 0 2px #3399ff;
 }
 
-
 input:disabled {
   background: #e5e7eb; /* gray-200 */
 }
 
 button {
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-  padding-top: 0.125rem;
-  padding-bottom: 0.125rem;
-  font-size: 0.875rem;
+  padding: 2px 12px 2px 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
   background: #c0c0c0;
+  color: #222;
+  border: 1px solid #fff;
+  border-top-color: #dfdfdf;
+  border-left-color: #dfdfdf;
+  border-right-color: #404040;
+  border-bottom-color: #404040;
+  box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #808080;
+  cursor: pointer;
+  outline: none;
+}
+
+button:hover {
+  background: #dfdfdf;
 }
 
 button:active {
   background: #a0a0a0;
+  border-top-color: #404040;
+  border-left-color: #404040;
+  border-bottom-color: #fff;
+  border-right-color: #fff;
+  box-shadow: inset 2px 2px 2px #808080;
 }

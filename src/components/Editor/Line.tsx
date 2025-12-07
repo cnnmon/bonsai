@@ -7,6 +7,7 @@ import SceneMenu from "../Editor/SceneMenu";
 import { twMerge } from "tailwind-merge";
 import { getPrefix } from "./utils";
 import { LineType } from "@/types";
+import { formatOptionTexts, parseOptionTexts } from "@/lib/options";
 
 export default function Line({
   line,
@@ -29,9 +30,20 @@ export default function Line({
   const [showSlash, setShowSlash] = useState(false);
   const [slashQuery, setSlashQuery] = useState("");
   const [selectedSceneIdx, setSelectedSceneIdx] = useState(0);
+  const [optionDraft, setOptionDraft] = useState("");
 
   const { type, content } = detectPrefix(line.text);
-  const displayValue = type === "scene" ? content.replace(/:$/, "") : content;
+  const optionTexts = useMemo(
+    () =>
+      type === LineType.OPTION ? parseOptionTexts(optionDraft || content) : [],
+    [type, optionDraft, content]
+  );
+  const displayValue =
+    type === LineType.SCENE
+      ? content.replace(/:$/, "")
+      : type === LineType.OPTION
+      ? optionDraft
+      : content;
   const isJump = type === LineType.JUMP;
 
   const sceneNames = useMemo(
@@ -71,6 +83,12 @@ export default function Line({
     }
   }, [content, isJump]);
 
+  useEffect(() => {
+    if (type === LineType.OPTION) {
+      setOptionDraft(content);
+    }
+  }, [type, content]);
+
   // Handle content changes - preserve prefix, update content
   const handleContentChange = (newContent: string) => {
     // Check for slash command
@@ -78,15 +96,31 @@ export default function Line({
       setShowSlash(true);
       setSlashQuery(newContent);
       updateLine(line.id, getPrefix(type) + newContent);
-    } else {
-      setShowSlash(false);
-      // Scene labels need special handling (no prefix, ends with :)
-      if (type === "scene") {
-        updateLine(line.id, newContent + (newContent.endsWith(":") ? "" : ":"));
-      } else {
-        updateLine(line.id, getPrefix(type) + newContent);
-      }
+      return;
     }
+
+    setShowSlash(false);
+
+    if (type === LineType.SCENE) {
+      updateLine(line.id, newContent + (newContent.endsWith(":") ? "" : ":"));
+      return;
+    }
+
+    if (type === LineType.OPTION) {
+      setOptionDraft(newContent);
+      updateLine(line.id, getPrefix(type) + newContent);
+      return;
+    }
+
+    updateLine(line.id, getPrefix(type) + newContent);
+  };
+
+  const handleBlur = () => {
+    if (type !== LineType.OPTION) return;
+    const parsed = parseOptionTexts(optionDraft || content);
+    const formatted = formatOptionTexts(parsed);
+    updateLine(line.id, `${getPrefix(LineType.OPTION)}${formatted}`);
+    setOptionDraft(formatted);
   };
 
   const handleSceneSelect = (scene: string) => {
@@ -124,11 +158,17 @@ export default function Line({
       } else if (e.key === "ArrowUp") {
         setSelectedSceneIdx((s) => Math.max(s - 1, 0));
       } else if (e.key === "Enter") {
-        handleSceneSelect(
-          filteredScenes[selectedSceneIdx] ?? filteredScenes[0]
-        );
+        // Only select if user has actively picked an item; otherwise allow normal flow
+        if (selectedSceneIdx >= 0 && selectedSceneIdx < filteredScenes.length) {
+          handleSceneSelect(
+            filteredScenes[selectedSceneIdx] ?? filteredScenes[0]
+          );
+          return;
+        }
+      } else if (e.key === "Escape") {
+        setShowSlash(false);
       }
-      return;
+      // For Enter without a valid selection, fall through to default handling below
     }
 
     if (e.key === "Enter") {

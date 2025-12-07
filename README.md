@@ -41,8 +41,8 @@ Options can require inventory items: `-> Use your sword [? SWORD]` only appears 
 - [x] Notion-style editor with slash commands (`/decision`, `/option`, `/goto`)
 
 ### MVP
-- [ ] Fuzzy search for option matching (LLM call)
-- [ ] Branch generation when no match found (LLM call -- make this con)
+- [ ] Fuzzy search for option matching (LLM call, embeddings semantic search hopefully)
+- [ ] Branch generation when no match found (LLM call -- make this constrained to generate exactly: (1) 1+ paragraph lines (2) a JUMP statement to an existing scene OR generate a new scene (3) the new scene has a new decision point OR an ending)
 - [ ] Version control for generated content (diff view, approve/reject)
 
 ### Future

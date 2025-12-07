@@ -1,5 +1,15 @@
-import { GameStructure, Scene, Line, Option, NarrativeLine, DecisionLine, JumpLine, LineType } from '../types/game';
-import { generateId } from '../components/Editor/utils';
+import {
+  GameStructure,
+  Scene,
+  Line,
+  Option,
+  NarrativeLine,
+  DecisionLine,
+  JumpLine,
+  LineType,
+} from "../types/game";
+import { generateId } from "../components/Editor/utils";
+import { formatOptionTexts, parseOptionTexts } from "./options";
 
 // Editor line representation (flat list for easy editing)
 export interface EditorLine {
@@ -36,7 +46,11 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
     } else if (line.type === LineType.DECISION) {
       lines.push({ id: line.id, text: `* ${line.prompt}`, indent });
       for (const opt of line.options) {
-        lines.push({ id: opt.id, text: `~ ${opt.text}`, indent: indent + 1 });
+        lines.push({
+          id: opt.id,
+          text: `~ ${formatOptionTexts(opt.texts)}`,
+          indent: indent + 1,
+        });
         for (const optLine of opt.lines) {
           processLine(optLine, indent + 2);
         }
@@ -113,13 +127,18 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       }
       
       // Check if this is an option (option prefix at decision indent + 1) or a jump
-      const isOption = type === LineType.OPTION && 
-        currentDecision && 
+      const isOption =
+        type === LineType.OPTION &&
+        currentDecision &&
         indent === currentDecision.indent + 1;
       
       if (isOption) {
         finishOption();
-        currentOption = { id: editorLine.id, text: content, lines: [] };
+        currentOption = {
+          id: editorLine.id,
+          texts: parseOptionTexts(content),
+          lines: [],
+        };
         i++;
         continue;
       }

@@ -1,21 +1,18 @@
-import { Option, HistoryEntry } from "@/types";
+import { HistoryEntry } from "@/types";
+import { useState } from "react";
 
 export default function Decision({
   entry,
   isPending,
-  query,
-  onQueryChange,
-  filteredOptions,
   onSelect,
+  isGenerating,
 }: {
   entry: HistoryEntry;
   isPending: boolean;
-  query: string;
-  onQueryChange: (value: string) => void;
-  filteredOptions: Option[];
   onSelect: (text: string) => void;
+  isGenerating: boolean;
 }) {
-  const showOptions = query.trim().length > 0 && filteredOptions.length > 0;
+  const [query, setQuery] = useState("");
   return (
     <>
       <p>{entry.text}</p>
@@ -23,34 +20,38 @@ export default function Decision({
         <div className="flex flex-col gap-2">
           <input
             value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Type to decide..."
+            disabled={isGenerating}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
                 if (query.trim().length > 0) {
                   onSelect(query);
-                  onQueryChange("");
                 }
               }
             }}
           />
-          {showOptions && (
-            <div className="border border-gray-200 rounded-sm overflow-hidden divide-y divide-gray-200">
-              {filteredOptions.map((opt) => (
-                <button
-                  key={opt.id}
-                  className="w-full text-left px-2 py-2 text-sm hover:bg-gray-100"
-                  onClick={() => onSelect(opt.text)}
-                >
-                  {opt.text}
-                </button>
-              ))}
-            </div>
+          {isGenerating && (
+            <div className="text-xs text-gray-500">Matching your choice...</div>
           )}
         </div>
       ) : (
-        <input value={entry.chosenOption || ""} disabled />
+        <div className="flex flex-col gap-1">
+          <input value={entry.chosenOption || ""} disabled />
+          {entry.selectionMeta && (
+            <div className="text-xs text-gray-500">
+              Using: {entry.selectionMeta.option}
+              {entry.selectionMeta.cached
+                ? " (cached)"
+                : typeof entry.selectionMeta.confidence === "number"
+                ? ` (${Math.round(
+                    entry.selectionMeta.confidence * 100
+                  )}% match)`
+                : ""}
+            </div>
+          )}
+        </div>
       )}
     </>
   );

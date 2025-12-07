@@ -8,7 +8,7 @@ export function getPrefix(type: LineType): string {
     case LineType.DECISION:
       return "* ";
     case LineType.OPTION:
-      return "-> ";
+      return "~ ";
     case LineType.JUMP:
       return "↗ ";
     default:
@@ -47,10 +47,13 @@ export function createJumpLine(target: string): JumpLine {
   };
 }
 
-export function createOption(text: string, lines: (NarrativeLine | DecisionLine | JumpLine)[] = []): Option {
+export function createOption(
+  texts: string[],
+  lines: (NarrativeLine | DecisionLine | JumpLine)[] = []
+): Option {
   return {
     id: generateId(),
-    text,
+    texts,
     lines,
   };
 }
