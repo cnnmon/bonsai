@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Idea
 
-## Getting Started
+A bonsai game engine for interactive branching narratives, where the game grows by itself but requires pruning.
 
-First, run the development server:
+## Notation
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+The editor uses a bullet-point notation inspired by Ink:
+
+```
+FIRE:
+- The fire burns brightly.
+* What does the player do?
+  ~ Ride a bike
+    - That's cool!
+    -> BIKE
+  ~ Learn to sail
+    [+ sailing]
+    - END: Sailing end
+
+BIKE:
+- You're biking, that's pretty rad
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Symbol | Meaning |
+|--------|---------|
+| `-` | Narrative line |
+| `*` | Decision point (prompt) |
+| `->` | Option (under a decision) or jump (standalone) |
+| `[+ X]` | Add item to inventory |
+| `[- X]` | Remove item from inventory |
+| `[? X]` | Check if item exists (conditional) |
+| `[X += N]` | Add N to stat X |
+| `[X -= N]` | Subtract N from stat X |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Options can require inventory items: `-> Use your sword [? SWORD]` only appears if the player has SWORD. Required options bypass semantic search.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+**Editor**: Notion-style text editor with slash commands. Type `/decision`, `/option`, `/goto`, `/narrative` to insert line types. Tab/Shift-Tab for indentation. Enter preserves line type. Parses notation to game structure in real-time.
 
-To learn more about Next.js, take a look at the following resources:
+**Game**: Linear playable interface. At decision points, shows searchable input. If player types something semantically different from existing options, a new branch is generated.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Interplay**: When the game generates a new branch, the editor updates live. Authors can review/approve/reject changes.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Roadmap
 
-## Deploy on Vercel
+### Done
+- [x] Game type structure (scenes, lines, decisions, jumps)
+- [x] `useGame` hook for gameplay state machine
+- [x] Searchable decision input with disabled history
+- [x] Notation parser (text ↔ structure)
+- [x] Notion-style editor with slash commands (`/decision`, `/option`, `/goto`)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### MVP
+- [ ] Semantic search for option matching (embeddings, similarity threshold)
+- [ ] Branch generation when no match found (LLM call)
+- [ ] Version control for generated content (diff view, approve/reject)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Future
+- [ ] Variable/inventory system
+- [ ] Custom AI narrator prompts
+- [ ] Save/load game structures
+- [ ] Export to other formats
+
+## Style
+
+Windows 95 aesthetic for inputs/buttons. Barebones demo.

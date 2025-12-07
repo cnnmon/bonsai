@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useGame } from './useGame';
-import { GameStructure } from '../types/game';
+import { GameStructure, LineType } from '../types/game';
 
 // Simple test game structure
 const testGame: GameStructure = {
@@ -10,9 +10,9 @@ const testGame: GameStructure = {
     {
       label: 'START',
       lines: [
-        { type: 'narrative', id: 'n1', text: 'Welcome!' },
+        { type: LineType.NARRATIVE, id: 'n1', text: 'Welcome!' },
         {
-          type: 'decision',
+          type: LineType.DECISION,
           id: 'd1',
           prompt: 'What do you do?',
           options: [
@@ -20,15 +20,15 @@ const testGame: GameStructure = {
               id: 'o1',
               text: 'Go left',
               lines: [
-                { type: 'narrative', id: 'n2', text: 'You went left!' },
-                { type: 'jump', id: 'j1', target: 'END' },
+                { type: LineType.NARRATIVE, id: 'n2', text: 'You went left!' },
+                { type: LineType.JUMP, id: 'j1', target: 'END' },
               ],
             },
             {
               id: 'o2',
               text: 'Go right',
               lines: [
-                { type: 'jump', id: 'j2', target: 'END' },
+                { type: LineType.JUMP, id: 'j2', target: 'END' },
               ],
             },
           ],

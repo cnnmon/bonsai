@@ -24,3 +24,39 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+input {
+  border: 2px solid #808080;
+  border-right-color: #fff;
+  border-bottom-color: #fff;
+  background: #fff;
+  color: #222;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+  box-shadow: inset 1px 1px 0 #c0c0c0, inset -1px -1px 0 #404040;
+}
+
+input:focus {
+  border-color: #000 #fff #fff #000;
+  box-shadow: 0 0 2px #3399ff;
+}
+
+
+input:disabled {
+  background: #e5e7eb; /* gray-200 */
+}
+
+button {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+  font-size: 0.875rem;
+  background: #c0c0c0;
+}
+
+button:active {
+  background: #a0a0a0;
+}

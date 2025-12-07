@@ -1,4 +1,5 @@
-import { GameStructure, Scene, Line, Option, NarrativeLine, DecisionLine, JumpLine } from '../types/game';
+import { GameStructure, Scene, Line, Option, NarrativeLine, DecisionLine, JumpLine, LineType } from '../types/game';
+import { generateId } from '../components/Editor/utils';
 
 // Editor line representation (flat list for easy editing)
 export interface EditorLine {
@@ -7,25 +8,19 @@ export interface EditorLine {
   indent: number;
 }
 
-let idCounter = 0;
-const genId = () => `line-${++idCounter}`;
-
-// Detect line type from prefix
-export type LinePrefix = 'narrative' | 'decision' | 'option' | 'jump' | 'scene' | 'empty';
-
-export function detectPrefix(text: string): { type: LinePrefix; content: string } {
+export function detectPrefix(text: string): { type: LineType; content: string } {
   const trimmed = text.trimStart();
-  
-  if (trimmed === '') return { type: 'empty', content: '' };
-  if (trimmed.startsWith('* ')) return { type: 'decision', content: trimmed.slice(2) };
-  if (trimmed.startsWith('-> ')) return { type: 'option', content: trimmed.slice(3) };
-  if (trimmed.startsWith('- ')) return { type: 'narrative', content: trimmed.slice(2) };
-  if (trimmed.endsWith(':') && !trimmed.includes(' ')) return { type: 'scene', content: trimmed.slice(0, -1) };
+  if (trimmed.startsWith("* ")) return { type: LineType.DECISION, content: trimmed.slice(2) };
+  if (trimmed.startsWith("~ ")) return { type: LineType.OPTION, content: trimmed.slice(2) };
+  // Legacy: "-> " may represent an option or jump; we classify as OPTION here and will disambiguate by indent later.
+  if (trimmed.startsWith("-> ")) return { type: LineType.OPTION, content: trimmed.slice(3) };
+  if (trimmed.startsWith("- ")) return { type: LineType.NARRATIVE, content: trimmed.slice(2) };
+  if (trimmed.endsWith(":") && !trimmed.includes(" ")) return { type: LineType.SCENE, content: trimmed.slice(0, -1) };
   // Standalone arrow is a jump
-  if (trimmed.startsWith('->')) return { type: 'jump', content: trimmed.slice(2).trim() };
+  if (trimmed.startsWith("->")) return { type: LineType.JUMP, content: trimmed.slice(2).trim() };
   
   // Default to narrative without prefix
-  return { type: 'narrative', content: trimmed };
+  return { type: LineType.NARRATIVE, content: trimmed };
 }
 
 // Convert GameStructure to flat editor lines
@@ -33,14 +28,14 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
   const lines: EditorLine[] = [];
   
   const processLine = (line: Line, indent: number) => {
-    if (line.type === 'narrative') {
+    if (line.type === LineType.NARRATIVE) {
       lines.push({ id: line.id, text: `- ${line.text}`, indent });
-    } else if (line.type === 'jump') {
+    } else if (line.type === LineType.JUMP) {
       lines.push({ id: line.id, text: `-> ${line.target}`, indent });
-    } else if (line.type === 'decision') {
+    } else if (line.type === LineType.DECISION) {
       lines.push({ id: line.id, text: `* ${line.prompt}`, indent });
       for (const opt of line.options) {
-        lines.push({ id: opt.id, text: `-> ${opt.text}`, indent: indent + 1 });
+        lines.push({ id: opt.id, text: `~ ${opt.text}`, indent: indent + 1 });
         for (const optLine of opt.lines) {
           processLine(optLine, indent + 2);
         }
@@ -53,7 +48,7 @@ export function structureToLines(structure: GameStructure): EditorLine[] {
     for (const line of scene.lines) {
       processLine(line, 0);
     }
-    lines.push({ id: genId(), text: '', indent: 0 }); // Empty line between scenes
+    lines.push({ id: generateId(), text: '', indent: 0 }); // Empty line between scenes
   }
   
   return lines;
@@ -91,13 +86,8 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       const editorLine = editorLines[i];
       const { type, content } = detectPrefix(editorLine.text);
       const indent = editorLine.indent;
-      
-      if (type === 'empty') {
-        i++;
-        continue;
-      }
-      
-      if (type === 'scene') {
+
+      if (type === LineType.SCENE) {
         finishDecision();
         if (currentScene) {
           scenes.push(currentScene);
@@ -111,18 +101,18 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
         currentScene = { label: 'START', lines: [] };
       }
       
-      if (type === 'decision') {
+      if (type === LineType.DECISION) {
         finishDecision();
         currentDecision = { 
-          line: { type: 'decision', id: editorLine.id, prompt: content, options: [] },
+          line: { type: LineType.DECISION, id: editorLine.id, prompt: content, options: [] },
           indent 
         };
         i++;
         continue;
       }
       
-      // Check if this is an option (-> at decision indent + 1) or a jump
-      const isOption = type === 'option' && 
+      // Check if this is an option (option prefix at decision indent + 1) or a jump
+      const isOption = type === LineType.OPTION && 
         currentDecision && 
         indent === currentDecision.indent + 1;
       
@@ -133,8 +123,28 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
         continue;
       }
       
-      if (type === 'narrative') {
-        const narrativeLine: NarrativeLine = { type: 'narrative', id: editorLine.id, text: content };
+      // Legacy/ambiguous arrow at wrong indent: treat as jump
+      if (type === LineType.OPTION) {
+        const jumpLine: JumpLine = { type: LineType.JUMP, id: editorLine.id, target: content };
+        if (currentOption) {
+          currentOption.lines.push(jumpLine);
+        } else if (currentDecision) {
+          if (indent <= currentDecision.indent) {
+            finishDecision();
+            currentScene.lines.push(jumpLine);
+          } else {
+            finishDecision();
+            currentScene.lines.push(jumpLine);
+          }
+        } else {
+          currentScene.lines.push(jumpLine);
+        }
+        i++;
+        continue;
+      }
+      
+      if (type === LineType.NARRATIVE) {
+        const narrativeLine: NarrativeLine = { type: LineType.NARRATIVE, id: editorLine.id, text: content };
         if (currentOption) {
           currentOption.lines.push(narrativeLine);
         } else if (currentDecision) {
@@ -156,8 +166,8 @@ export function linesToStructure(editorLines: EditorLine[]): GameStructure {
       }
       
       // Handle jump (-> at wrong indent, or standalone)
-      if (type === 'jump' || type === 'option') {
-        const jumpLine: JumpLine = { type: 'jump', id: editorLine.id, target: content };
+      if (type === LineType.JUMP) {
+        const jumpLine: JumpLine = { type: LineType.JUMP, id: editorLine.id, target: content };
         if (currentOption) {
           currentOption.lines.push(jumpLine);
         } else if (currentDecision) {
