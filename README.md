@@ -1,7 +1,5 @@
 [Live game](bonsai-eosin.vercel.app) | [Video demo](https://youtu.be/qMks4tNpRBE)
 
-<img width="1692" height="1161" alt="Screenshot 2025-12-07 at 2 34 50 PM" src="https://github.com/user-attachments/assets/230771f0-2211-480e-9a07-ef7d32805f33" />
-
 An AI game engine inspired by a bonsai tree for interactive branching narratives, where the game grows by itself but allows for easy pruning by the human author. Hacked across 2 days.
 
 <img width="1365" height="1161" alt="Screenshot 2025-12-07 at 2 26 40 PM" src="https://github.com/user-attachments/assets/bb9951fd-21a4-4b84-acce-440b848cc937" />
