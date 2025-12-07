@@ -12,6 +12,7 @@ export default function Editor() {
     revertVersion,
     deleteLine,
     updateLine,
+    replaceAllLines,
   } = useGameContext();
 
   const [mounted, setMounted] = useState(false);
@@ -52,7 +53,35 @@ export default function Editor() {
   const copyToClipboard = useCallback(() => {
     const text = JSON.stringify(editorLines);
     navigator.clipboard.writeText(text);
-  }, [versionLog]);
+  }, [editorLines]);
+
+  const pasteFromClipboard = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text);
+
+      // Validate it's an array of editor lines
+      if (
+        Array.isArray(parsed) &&
+        parsed.every(
+          (item) =>
+            item &&
+            typeof item.id === "string" &&
+            typeof item.text === "string" &&
+            typeof item.indent === "number"
+        )
+      ) {
+        replaceAllLines(parsed);
+      } else {
+        alert("Clipboard does not contain valid editor lines format");
+      }
+    } catch (error) {
+      alert(
+        "Failed to parse clipboard content: " +
+          (error instanceof Error ? error.message : "Unknown error")
+      );
+    }
+  }, [replaceAllLines]);
 
   // Handle Ctrl+A / Cmd+A to select all lines
   useEffect(() => {
@@ -153,6 +182,7 @@ export default function Editor() {
                 className="w-full border px-2 py-1 text-sm"
               />
               <button onClick={copyToClipboard}>Copy</button>
+              <button onClick={pasteFromClipboard}>Paste</button>
               <button onClick={handleSaveVersion}>Save</button>
             </div>
 

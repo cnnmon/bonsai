@@ -47,6 +47,7 @@ interface GameContextValue {
   ) => void;
   registerSceneJumpHandler: (fn: (sceneLabel: string) => void) => void;
   triggerSceneJump: (sceneLabel: string) => void;
+  replaceAllLines: (lines: EditorLine[]) => void;
 }
 
 interface VersionEntry {
@@ -275,6 +276,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
     sceneJumpHandlerRef.current?.(sceneLabel);
   }, []);
 
+  const replaceAllLines = useCallback(
+    (lines: EditorLine[]) => {
+      setEditorLines(lines);
+      saveVersion("Pasted from clipboard", lines);
+    },
+    [saveVersion]
+  );
+
   const lineToEditorLines = useCallback(
     (line: Line, indent: number): EditorLine[] => {
       if (line.type === LineType.NARRATIVE) {
@@ -393,6 +402,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         appendLineToScene,
         registerSceneJumpHandler,
         triggerSceneJump,
+        replaceAllLines,
       }}
     >
       {children}
